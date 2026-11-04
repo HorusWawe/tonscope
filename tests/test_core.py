@@ -80,6 +80,16 @@ class DatabaseTests(unittest.TestCase):
             db.toggle_saved("suaqa", True)
             self.assertEqual(len(db.list_usernames("saved")), 1)
 
+    def test_only_confirmed_available_usernames_are_persisted(self):
+        with tempfile.TemporaryDirectory() as temp:
+            db = Database(Path(temp) / "profile.db")
+            scores = evaluate_username("suaqa")
+            db.record_available("suaqa", scores)
+            self.assertEqual(db.stats()["total"], 1)
+            self.assertEqual(db.list_usernames("checked")[0]["status"], "available")
+            db.remove_username("suaqa")
+            self.assertEqual(db.stats()["total"], 0)
+
 
 if __name__ == "__main__":
     unittest.main()
