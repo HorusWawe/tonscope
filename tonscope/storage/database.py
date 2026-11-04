@@ -89,20 +89,6 @@ class Database:
     def now() -> str:
         return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
-    def add_candidate(self, username: str, scores: dict[str, int]) -> bool:
-        now = self.now()
-        with self.connect() as db:
-            cursor = db.execute("""
-                INSERT OR IGNORE INTO usernames (
-                    username, status, readability, pronounceability,
-                    uniqueness, brandability, liquidity, overall, created_at, updated_at
-                ) VALUES (?, 'candidate', ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                username, scores["readability"], scores["pronounceability"],
-                scores["uniqueness"], scores["brandability"], scores["liquidity"], scores["overall"], now, now,
-            ))
-            return cursor.rowcount > 0
-
     def exists(self, username: str) -> bool:
         return self.get_username(username) is not None
 
