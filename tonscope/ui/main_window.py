@@ -7,7 +7,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
     QApplication, QComboBox, QFileDialog, QFrame, QFormLayout, QHBoxLayout,
-    QLabel, QLineEdit, QMainWindow, QMessageBox, QPushButton, QProgressBar,
+    QInputDialog, QLabel, QLineEdit, QMainWindow, QMessageBox, QPushButton, QProgressBar,
     QSpinBox, QStackedWidget, QTableWidget, QTableWidgetItem, QVBoxLayout,
     QWidget, QHeaderView,
 )
@@ -60,7 +60,8 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.config = AppConfig()
-        self.db = Database(DB_PATH)
+        self.profile_name = self.config.values.get("profile", "default")
+        self.db = Database(data_dir() / "profiles" / self.profile_name / "tonscope.db")
         self.worker = None
         self.rates_worker = None
         self.ton_usd = None
@@ -100,9 +101,9 @@ class MainWindow(QMainWindow):
             self.nav.append(button)
         self.nav[0].setChecked(True)
         side.addStretch()
-        profile = QLabel("PROFILE\nDefault")
-        profile.setObjectName("Muted")
-        side.addWidget(profile)
+        self.profile_label = QLabel(f"PROFILE\n{self.profile_name}")
+        self.profile_label.setObjectName("Muted")
+        side.addWidget(self.profile_label)
 
         self.pages.addWidget(self._dashboard())
         self.pages.addWidget(self._list_page("new"))
@@ -121,8 +122,8 @@ class MainWindow(QMainWindow):
             self.refresh_table(index)
 
     def _table(self):
-        table = QTableWidget(0, 7)
-        table.setHorizontalHeaderLabels(["Username", "Status", "Length", "Score", "Readability", "Fragment ask", "Comparable range"])
+        table = QTableWidget(0, 8)
+        table.setHorizontalHeaderLabels(["Username", "Status", "Length", "Score", "Readability", "Liquidity", "Fragment ask", "Comparable range"])
         table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         table.setAlternatingRowColors(True)
         table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
@@ -244,10 +245,12 @@ class MainWindow(QMainWindow):
         panel = QFrame()
         panel.setObjectName("Panel")
         form = QFormLayout(panel)
+        self.profile_combo = QComboBox()
         self.api_url = QLineEdit()
         self.rpm = QSpinBox()
         self.rpm.setRange(1, 24)
         self.rpm.setSuffix(" requests/min")
+        form.addRow("Active profile", self.profile_combo)
         form.addRow("Public checker API", self.api_url)
         form.addRow("API request limit", self.rpm)
         layout.addWidget(panel)
@@ -257,8 +260,14 @@ class MainWindow(QMainWindow):
         save.clicked.connect(self.save_settings)
         rates = QPushButton("Refresh TON / USD / RUB rates")
         rates.clicked.connect(self.refresh_rates)
+        create_profile = QPushButton("New profile")
+        create_profile.clicked.connect(self.create_profile)
+        switch_profile = QPushButton("Switch profile")
+        switch_profile.clicked.connect(self.switch_profile)
         buttons.addWidget(save)
         buttons.addWidget(rates)
+        buttons.addWidget(create_profile)
+        buttons.addWidget(switch_profile)
         layout.addLayout(buttons)
         self.settings_info = QLabel("Public Telegram + Fragment resolver. No Telegram login required. Bulk size: up to 15 names/request. Service limit: 25 requests/minute. TON ask is shown only when Fragment returns an observed price. Comparable ranges require at least 3 active listings.")
         self.settings_info.setObjectName("Muted")
@@ -270,6 +279,43 @@ class MainWindow(QMainWindow):
     def _load_settings(self):
         self.api_url.setText(self.config.values.get("api_url", ""))
         self.rpm.setValue(int(self.config.values.get("requests_per_minute", 20)))
+        profiles = data_dir() / "profiles"
+        profiles.mkdir(parents=True, exist_ok=True)
+        names = sorted(p.name for p in profiles.iterdir() if p.is_dir())
+        if self.profile_name not in names:
+            names.append(self.profile_name)
+        self.profile_combo.addItems(names)
+        self.profile_combo.setCurrentText(self.profile_name)
+
+    def create_profile(self):
+        name, accepted = QInputDialog.getText(self, "New profile", "Profile name (letters, numbers, dash, underscore):")
+        if not accepted:
+            return
+        import re
+        clean = name.strip().lower()
+        if not re.fullmatch(r"[a-z0-9_-]{1,32}", clean):
+            QMessageBox.warning(self, "Invalid profile", "Use 1-32 characters: a-z, 0-9, dash or underscore.")
+            return
+        profile_path = data_dir() / "profiles" / clean
+        profile_path.mkdir(parents=True, exist_ok=True)
+        if self.profile_combo.findText(clean) < 0:
+            self.profile_combo.addItem(clean)
+        self.profile_combo.setCurrentText(clean)
+        self.status.setText(f"Profile {clean} created. Click Switch profile to activate it.")
+
+    def switch_profile(self):
+        name = self.profile_combo.currentText().strip()
+        import re
+        if not re.fullmatch(r"[a-z0-9_-]{1,32}", name):
+            QMessageBox.warning(self, "Invalid profile", "Invalid profile name.")
+            return
+        self.profile_name = name
+        self.db = Database(data_dir() / "profiles" / name / "tonscope.db")
+        self.config.values["profile"] = name
+        self.config.save()
+        self.profile_label.setText(f"PROFILE\n{name}")
+        self.refresh_all()
+        self.status.setText(f"Switched to profile: {name}")
 
     def save_settings(self):
         self.config.values["api_url"] = self.api_url.text().strip().rstrip("/")
@@ -356,7 +402,7 @@ class MainWindow(QMainWindow):
         if frag and status not in ("auction", "fragment_collectible"):
             label += f" · {frag}"
         values = ["@" + item["username"], label, len(item["username"]), item.get("overall",0),
-                  item.get("readability",0), self._price_text(item), self._range_text(item)]
+                  item.get("readability",0), item.get("liquidity",0), self._price_text(item), self._range_text(item)]
         for col, value in enumerate(values):
             cell = QTableWidgetItem(str(value))
             if col == 0:
