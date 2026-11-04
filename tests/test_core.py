@@ -24,7 +24,7 @@ class GeneratorTests(unittest.TestCase):
 class EvaluatorTests(unittest.TestCase):
     def test_scores_are_in_range(self):
         scores = evaluate_username("suaqa")
-        self.assertEqual(set(scores), {"readability", "pronounceability", "uniqueness", "brandability", "overall"})
+        self.assertEqual(set(scores), {"readability", "pronounceability", "uniqueness", "brandability", "liquidity", "overall"})
         self.assertTrue(all(1 <= score <= 10 for score in scores.values()))
 
     def test_rejects_invalid_username(self):
