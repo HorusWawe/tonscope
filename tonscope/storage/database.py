@@ -67,6 +67,9 @@ class Database:
             for name, sql_type in additions.items():
                 if name not in existing:
                     db.execute(f"ALTER TABLE usernames ADD COLUMN {name} {sql_type}")
+            # Older versions persisted candidates, occupied names and Fragment listings.
+            # Keep only names that were confirmed directly available on Telegram.
+            db.execute("DELETE FROM usernames WHERE status != 'available'")
             if needs_score_migration:
                 from tonscope.core.evaluator import evaluate_username
                 for row in db.execute("SELECT username FROM usernames").fetchall():
