@@ -76,8 +76,11 @@ class PublicUsernameChecker:
                 except (TypeError, ValueError):
                     price_ton = None
 
-            if verdict == "available":
+            fragment_is_listed = fragment.get("found") is True or frag_status in ("on_auction", "for_sale")
+            if verdict == "available" and not fragment_is_listed:
                 status = "available"
+            elif verdict == "available" and fragment_is_listed:
+                status = "auction" if frag_status == "on_auction" else "fragment_collectible"
             elif verdict == "taken":
                 status = "occupied"
             elif verdict == "fragment_collectible":
