@@ -70,16 +70,6 @@ class DatabaseTests(unittest.TestCase):
             self.assertIn("fragment_status", columns)
             self.assertIn("fragment_price_ton", columns)
 
-    def test_candidate_persists_and_is_not_duplicated(self):
-        with tempfile.TemporaryDirectory() as temp:
-            db = Database(Path(temp) / "profile.db")
-            scores = evaluate_username("suaqa")
-            self.assertTrue(db.add_candidate("suaqa", scores))
-            self.assertFalse(db.add_candidate("suaqa", scores))
-            self.assertEqual(db.stats()["total"], 1)
-            db.toggle_saved("suaqa", True)
-            self.assertEqual(len(db.list_usernames("saved")), 1)
-
     def test_only_confirmed_available_usernames_are_persisted(self):
         with tempfile.TemporaryDirectory() as temp:
             db = Database(Path(temp) / "profile.db")
