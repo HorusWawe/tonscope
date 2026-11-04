@@ -72,9 +72,9 @@ class UsernameGenerator:
         return self._pattern_word()
 
     def stream(self) -> Iterator[str]:
-        seen: set[str] = set()
+        # Uniqueness is enforced by SQLite so STOP remains responsive even if a
+        # small word/syllable pool starts producing duplicates repeatedly.
         while True:
             candidate = self.generate()
-            if candidate not in seen and re.fullmatch(r"[a-z]{%d}" % self.length, candidate):
-                seen.add(candidate)
+            if re.fullmatch(r"[a-z]{%d}" % self.length, candidate):
                 yield candidate
