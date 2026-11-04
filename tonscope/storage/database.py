@@ -108,16 +108,38 @@ class Database:
             row = db.execute("SELECT * FROM usernames WHERE username=?", (username,)).fetchone()
         return dict(row) if row else None
 
-    def record_check(self, username: str, status: str, *, fragment_status: str | None = None,
-                     fragment_url: str | None = None, fragment_price_ton: float | None = None,
-                     detail: str | None = None) -> None:
+    def record_available(self, username: str, scores: dict[str, int], *,
+                         fragment_status: str | None = None, fragment_url: str | None = None,
+                         fragment_price_ton: float | None = None, detail: str | None = None) -> None:
+        """Persist only usernames confirmed as directly available on Telegram."""
         now = self.now()
         with self.connect() as db:
             db.execute("""
-                UPDATE usernames SET status=?, telegram_checked_at=?, fragment_checked_at=?,
-                    fragment_status=?, fragment_url=?, fragment_price_ton=?, check_detail=?,
-                    updated_at=? WHERE username=?
-            """, (status, now, now, fragment_status, fragment_url, fragment_price_ton, detail, now, username))
+                INSERT INTO usernames (
+                    username, status, readability, pronounceability, uniqueness,
+                    brandability, liquidity, overall, telegram_checked_at, fragment_checked_at,
+                    fragment_status, fragment_url, fragment_price_ton, check_detail,
+                    created_at, updated_at
+                ) VALUES (?, 'available', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(username) DO UPDATE SET
+                    status='available', readability=excluded.readability,
+                    pronounceability=excluded.pronounceability, uniqueness=excluded.uniqueness,
+                    brandability=excluded.brandability, liquidity=excluded.liquidity,
+                    overall=excluded.overall, telegram_checked_at=excluded.telegram_checked_at,
+                    fragment_checked_at=excluded.fragment_checked_at,
+                    fragment_status=excluded.fragment_status, fragment_url=excluded.fragment_url,
+                    fragment_price_ton=excluded.fragment_price_ton, check_detail=excluded.check_detail,
+                    updated_at=excluded.updated_at
+            """, (
+                username, scores["readability"], scores["pronounceability"], scores["uniqueness"],
+                scores["brandability"], scores["liquidity"], scores["overall"], now, now,
+                fragment_status, fragment_url, fragment_price_ton, detail, now, now,
+            ))
+
+    def remove_username(self, username: str) -> None:
+        """Remove a username when Telegram confirms it is not directly available."""
+        with self.connect() as db:
+            db.execute("DELETE FROM usernames WHERE username=?", (username,))
 
     def set_status(self, username: str, status: str) -> None:
         with self.connect() as db:
@@ -137,9 +159,9 @@ class Database:
         if view == "new":
             clauses.append("status='available' AND is_seen=0")
         elif view == "saved":
-            clauses.append("is_saved=1")
+            clauses.append("status='available' AND is_saved=1")
         elif view == "checked":
-            clauses.append("status IN ('available','occupied','auction','fragment_collectible','check_error')")
+            clauses.append("status='available'")
         where = " WHERE " + " AND ".join(clauses)
         with self.connect() as db:
             rows = db.execute(
@@ -172,10 +194,8 @@ class Database:
             row = db.execute("""
                 SELECT COUNT(*) total,
                     SUM(CASE WHEN status='available' THEN 1 ELSE 0 END) available,
-                    SUM(CASE WHEN is_saved=1 THEN 1 ELSE 0 END) saved,
-                    SUM(CASE WHEN status='candidate' THEN 1 ELSE 0 END) candidates,
-                    SUM(CASE WHEN status='occupied' THEN 1 ELSE 0 END) occupied,
-                    SUM(CASE WHEN status IN ('auction','fragment_collectible') THEN 1 ELSE 0 END) fragment
+                    SUM(CASE WHEN status='available' AND is_saved=1 THEN 1 ELSE 0 END) saved,
+                    0 candidates, 0 occupied, 0 fragment
                 FROM usernames
             """).fetchone()
         return {key: int(row[key] or 0) for key in ("total", "available", "saved", "candidates", "occupied", "fragment")}
