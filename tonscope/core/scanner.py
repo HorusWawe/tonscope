@@ -33,7 +33,7 @@ class ScanWorker(QThread):
         self._stop_requested = True
 
     def run(self):
-        checker = PublicUsernameChecker(self.api_url)
+        checker = PublicUsernameChecker(self.api_url, timeout=12)
         lengths = (5, 6, 7) if self.mixed_lengths else (self.length,)
         iterators = {n: UsernameGenerator(n, self.mode).stream() for n in lengths}
         batch = []
