@@ -15,7 +15,11 @@ Desktop username research tool built with Python and PySide6.
 - Fragment's observed TON ask and cached TON/USD + USD/RUB conversion.
 - Comparable range appears only after at least three observed active Fragment asks of the same username length. This is a current-ask reference range, not a guaranteed resale value.
 
-## Install
+## Install and run on Windows
+
+Run `start.bat`. It creates a virtual environment, installs PySide6 and starts the app.
+
+Manual run:
 
 ```powershell
 py -3.12 -m venv .venv
