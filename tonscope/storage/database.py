@@ -54,6 +54,7 @@ class Database:
             """)
             # Lightweight migration for databases created by v0.1.
             existing = {row["name"] for row in db.execute("PRAGMA table_info(usernames)")}
+            needs_score_migration = "liquidity" not in existing
             additions = {
                 "liquidity": "INTEGER NOT NULL DEFAULT 0",
                 "fragment_status": "TEXT",
@@ -66,6 +67,20 @@ class Database:
             for name, sql_type in additions.items():
                 if name not in existing:
                     db.execute(f"ALTER TABLE usernames ADD COLUMN {name} {sql_type}")
+            if needs_score_migration:
+                from tonscope.core.evaluator import evaluate_username
+                for row in db.execute("SELECT username FROM usernames").fetchall():
+                    try:
+                        scores = evaluate_username(row["username"])
+                    except ValueError:
+                        continue
+                    db.execute("""
+                        UPDATE usernames SET readability=?, pronounceability=?, uniqueness=?,
+                            brandability=?, liquidity=?, overall=? WHERE username=?
+                    """, (
+                        scores["readability"], scores["pronounceability"], scores["uniqueness"],
+                        scores["brandability"], scores["liquidity"], scores["overall"], row["username"],
+                    ))
 
     @staticmethod
     def now() -> str:
