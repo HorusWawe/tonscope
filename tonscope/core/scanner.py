@@ -59,21 +59,25 @@ class ScanWorker(QThread):
                 results = checker.check_many(names)
                 last_request = time.monotonic()
                 for result in results:
-                    self.database.record_check(
-                        result.username, result.status, fragment_status=result.fragment_status,
-                        fragment_url=result.fragment_url, fragment_price_ton=result.fragment_price_ton,
-                        detail=result.detail,
-                    )
+                    scores = evaluate_username(result.username)
+                    if result.status == "available":
+                        self.database.record_available(
+                            result.username, scores, fragment_status=result.fragment_status,
+                            fragment_url=result.fragment_url, fragment_price_ton=result.fragment_price_ton,
+                            detail=result.detail,
+                        )
+                        available += 1
+                        row = self.database.get_username(result.username) or {"username": result.username}
+                    else:
+                        self.database.remove_username(result.username)
+                        row = {"username": result.username}
                     checked += 1
-                    available += int(result.status == "available")
-                    row = next((x for x in self.database.list_usernames("all", 10000) if x["username"] == result.username), {"username": result.username})
                     self.candidate_checked.emit(result.username, result.status, row)
                 self.progress.emit(checked, available, processed)
                 self.message.emit(f"Checked {checked} · free {available} · generated {generated}")
             except Exception as exc:
                 last_request = time.monotonic()
                 for name in names:
-                    self.database.record_check(name, "check_error", detail=str(exc))
                     checked += 1
                     self.candidate_checked.emit(name, "check_error", {"username": name, "check_detail": str(exc)})
                 self.message.emit(f"API error; results saved for manual recheck: {exc}")
@@ -101,8 +105,6 @@ class ScanWorker(QThread):
                     scores = evaluate_username(username)
                     if scores["overall"] < self.min_score:
                         continue
-                    if not existing:
-                        self.database.add_candidate(username, scores)
                     generated += 1
                     batch.append(username)
                     if len(batch) >= 15:
@@ -159,13 +161,20 @@ class RecheckWorker(QThread):
                 results = checker.check_many(batch)
                 last_request = time.monotonic()
                 for result in results:
-                    self.database.record_check(
-                        result.username, result.status, fragment_status=result.fragment_status,
-                        fragment_url=result.fragment_url, fragment_price_ton=result.fragment_price_ton,
-                        detail=result.detail,
-                    )
+                    if result.status == "available":
+                        current = self.database.get_username(result.username)
+                        scores = {key: int((current or {}).get(key, 0)) for key in (
+                            "readability", "pronounceability", "uniqueness", "brandability", "liquidity", "overall"
+                        )}
+                        self.database.record_available(
+                            result.username, scores, fragment_status=result.fragment_status,
+                            fragment_url=result.fragment_url, fragment_price_ton=result.fragment_price_ton,
+                            detail=result.detail,
+                        )
+                        available += 1
+                    else:
+                        self.database.remove_username(result.username)
                     checked += 1
-                    available += int(result.status == "available")
                     self.candidate_checked.emit(result.username, result.status, {"username": result.username})
                 self.message.emit(f"Rechecked {checked}/{len(self.usernames)} · free {available}")
             except Exception as exc:
