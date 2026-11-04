@@ -29,7 +29,7 @@ class PublicUsernameChecker:
     """
 
     def __init__(self, base_url: str = DEFAULT_API, timeout: int = 25):
-        self.base_url = base_url.rstrip("/")
+        self.base_url = (base_url or DEFAULT_API).rstrip("/")
         self.timeout = timeout
 
     def check_many(self, usernames: list[str]) -> list[UsernameResult]:
