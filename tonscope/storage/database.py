@@ -31,6 +31,7 @@ class Database:
                     pronounceability INTEGER NOT NULL DEFAULT 0,
                     uniqueness INTEGER NOT NULL DEFAULT 0,
                     brandability INTEGER NOT NULL DEFAULT 0,
+                    liquidity INTEGER NOT NULL DEFAULT 0,
                     overall INTEGER NOT NULL DEFAULT 0,
                     telegram_checked_at TEXT,
                     fragment_checked_at TEXT,
@@ -54,6 +55,7 @@ class Database:
             # Lightweight migration for databases created by v0.1.
             existing = {row["name"] for row in db.execute("PRAGMA table_info(usernames)")}
             additions = {
+                "liquidity": "INTEGER NOT NULL DEFAULT 0",
                 "fragment_status": "TEXT",
                 "fragment_url": "TEXT",
                 "fragment_price_ton": "REAL",
@@ -75,11 +77,11 @@ class Database:
             cursor = db.execute("""
                 INSERT OR IGNORE INTO usernames (
                     username, status, readability, pronounceability,
-                    uniqueness, brandability, overall, created_at, updated_at
-                ) VALUES (?, 'candidate', ?, ?, ?, ?, ?, ?, ?)
+                    uniqueness, brandability, liquidity, overall, created_at, updated_at
+                ) VALUES (?, 'candidate', ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 username, scores["readability"], scores["pronounceability"],
-                scores["uniqueness"], scores["brandability"], scores["overall"], now, now,
+                scores["uniqueness"], scores["brandability"], scores["liquidity"], scores["overall"], now, now,
             ))
             return cursor.rowcount > 0
 
