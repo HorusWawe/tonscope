@@ -87,13 +87,14 @@ class ScanWorker(QThread):
                     username = next(iterators[length])
                     processed += 1
                     progressed = True
-                    if self.database.exists(username):
+                    existing = self.database.get_username(username)
+                    if existing and existing["status"] not in ("candidate", "check_error"):
                         continue
                     scores = evaluate_username(username)
                     if scores["overall"] < self.min_score:
                         continue
-                    if not self.database.add_candidate(username, scores):
-                        continue
+                    if not existing:
+                        self.database.add_candidate(username, scores)
                     generated += 1
                     batch.append(username)
                     if len(batch) >= 15:
