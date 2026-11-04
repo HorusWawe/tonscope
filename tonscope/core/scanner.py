@@ -40,6 +40,7 @@ class ScanWorker(QThread):
         checked = available = processed = generated = 0
         last_request = 0.0
         duplicate_streak = 0
+        seen_candidates: set[str] = set()
         pool_exhausted = False
         self.message.emit("Generating candidates and preparing live checks…")
 
@@ -94,7 +95,11 @@ class ScanWorker(QThread):
                     processed += 1
                     progressed = True
                     existing = self.database.get_username(username)
-                    if existing and existing["status"] not in ("candidate", "check_error"):
+                    if username in seen_candidates:
+                        duplicate_streak += 1
+                        continue
+                    seen_candidates.add(username)
+                    if existing and existing["status"] == "available":
                         duplicate_streak += 1
                         if duplicate_streak >= 500:
                             pool_exhausted = True
