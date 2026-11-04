@@ -39,6 +39,8 @@ class ScanWorker(QThread):
         batch = []
         checked = available = processed = generated = 0
         last_request = 0.0
+        duplicate_streak = 0
+        pool_exhausted = False
         self.message.emit("Generating candidates and preparing live checks…")
 
         def flush():
@@ -89,7 +91,13 @@ class ScanWorker(QThread):
                     progressed = True
                     existing = self.database.get_username(username)
                     if existing and existing["status"] not in ("candidate", "check_error"):
+                        duplicate_streak += 1
+                        if duplicate_streak >= 500:
+                            pool_exhausted = True
+                            self.message.emit("No unseen candidates in this generation pool. Change style or length to continue.")
+                            break
                         continue
+                    duplicate_streak = 0
                     scores = evaluate_username(username)
                     if scores["overall"] < self.min_score:
                         continue
@@ -102,7 +110,7 @@ class ScanWorker(QThread):
                             break
                         if self.target_free and available >= self.target_free:
                             break
-                if self.target_free and available >= self.target_free:
+                if pool_exhausted or (self.target_free and available >= self.target_free):
                     break
                 if not progressed:
                     break
