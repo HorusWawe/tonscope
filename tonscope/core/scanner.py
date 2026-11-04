@@ -5,13 +5,14 @@ from PySide6.QtCore import QThread, Signal
 
 from tonscope.core.evaluator import evaluate_username
 from tonscope.core.generator import UsernameGenerator
+from tonscope.core.rates import CurrencyRates
 from tonscope.integrations.public_checker import PublicUsernameChecker
 from tonscope.storage.database import Database
 
 
 class ScanWorker(QThread):
     candidate_checked = Signal(str, str, dict)
-    progress = Signal(int, int, int)  # checked, available, processed
+    progress = Signal(int, int, int)
     message = Signal(str)
     finished_summary = Signal(dict)
 
@@ -26,27 +27,28 @@ class ScanWorker(QThread):
         self.requests_per_minute = max(1, min(24, requests_per_minute))
         self.api_url = api_url
         self._stop_requested = False
+        self.mixed_lengths = False
 
-    def stop(self) -> None:
+    def stop(self):
         self._stop_requested = True
 
-    def run(self) -> None:
+    def run(self):
         checker = PublicUsernameChecker(self.api_url)
-        generator = UsernameGenerator(self.length, self.mode)
-        batch: list[str] = []
-        checked = available = processed = 0
-        created = 0
+        lengths = (5, 6, 7) if self.mixed_lengths else (self.length,)
+        iterators = {n: UsernameGenerator(n, self.mode).stream() for n in lengths}
+        batch = []
+        checked = available = processed = generated = 0
         last_request = 0.0
         self.message.emit("Generating candidates and preparing live checks…")
 
-        def flush() -> bool:
+        def flush():
             nonlocal checked, available, last_request
             if not batch:
                 return True
-            delay = max(0.0, 60.0 / self.requests_per_minute - (time.monotonic() - last_request))
-            deadline = time.monotonic() + delay
-            while not self._stop_requested and time.monotonic() < deadline:
-                time.sleep(min(0.2, deadline - time.monotonic()))
+            wait = max(0.0, 60.0 / self.requests_per_minute - (time.monotonic() - last_request))
+            until = time.monotonic() + wait
+            while not self._stop_requested and time.monotonic() < until:
+                time.sleep(min(0.2, max(0.0, until - time.monotonic())))
             if self._stop_requested:
                 return False
             names = list(batch)
@@ -56,56 +58,119 @@ class ScanWorker(QThread):
                 last_request = time.monotonic()
                 for result in results:
                     self.database.record_check(
-                        result.username, result.status,
-                        fragment_status=result.fragment_status,
-                        fragment_url=result.fragment_url,
-                        fragment_price_ton=result.fragment_price_ton,
+                        result.username, result.status, fragment_status=result.fragment_status,
+                        fragment_url=result.fragment_url, fragment_price_ton=result.fragment_price_ton,
                         detail=result.detail,
                     )
                     checked += 1
-                    if result.status == "available":
-                        available += 1
-                    row = next((x for x in self.database.list_usernames("all", 10000)
-                                if x["username"] == result.username), {})
+                    available += int(result.status == "available")
+                    row = next((x for x in self.database.list_usernames("all", 10000) if x["username"] == result.username), {"username": result.username})
                     self.candidate_checked.emit(result.username, result.status, row)
                 self.progress.emit(checked, available, processed)
-                self.message.emit(f"Checked {checked} · available {available} · generated {created}")
+                self.message.emit(f"Checked {checked} · free {available} · generated {generated}")
             except Exception as exc:
                 last_request = time.monotonic()
                 for name in names:
                     self.database.record_check(name, "check_error", detail=str(exc))
                     checked += 1
                     self.candidate_checked.emit(name, "check_error", {"username": name, "check_detail": str(exc)})
-                self.message.emit(f"API error, results saved as retryable: {exc}")
+                self.message.emit(f"API error; results saved for manual recheck: {exc}")
                 self.progress.emit(checked, available, processed)
             return True
 
         try:
-            for username in generator.stream():
-                if self._stop_requested:
-                    break
-                processed += 1
-                if self.database.exists(username):
-                    continue
-                scores = evaluate_username(username)
-                if scores["overall"] < self.min_score:
-                    continue
-                if not self.database.add_candidate(username, scores):
-                    continue
-                created += 1
-                batch.append(username)
-                if len(batch) >= 15 and not flush():
-                    break
+            while not self._stop_requested:
+                progressed = False
+                for length in lengths:
+                    if self._stop_requested:
+                        break
+                    username = next(iterators[length])
+                    processed += 1
+                    progressed = True
+                    if self.database.exists(username):
+                        continue
+                    scores = evaluate_username(username)
+                    if scores["overall"] < self.min_score:
+                        continue
+                    if not self.database.add_candidate(username, scores):
+                        continue
+                    generated += 1
+                    batch.append(username)
+                    if len(batch) >= 15:
+                        if not flush():
+                            break
+                        if self.target_free and available >= self.target_free:
+                            break
                 if self.target_free and available >= self.target_free:
+                    break
+                if not progressed:
                     break
         except Exception as exc:
             self.message.emit(f"Scan error: {exc}")
         if not self._stop_requested and batch and (not self.target_free or available < self.target_free):
             flush()
-        summary = {"checked": checked, "available": available, "generated": created, "processed": processed,
-                   "stopped": self._stop_requested}
-        self.finished_summary.emit(summary)
-        self.message.emit(
-            f"Stopped · checked {checked} · free {available}. "
-            "Progress and all results are stored in the profile."
-        )
+        self.finished_summary.emit({
+            "checked": checked, "available": available, "generated": generated,
+            "processed": processed, "stopped": self._stop_requested,
+        })
+        self.message.emit(f"Finished · checked {checked} · free {available}. Results saved in profile.")
+
+
+class RecheckWorker(QThread):
+    candidate_checked = Signal(str, str, dict)
+    message = Signal(str)
+    finished_summary = Signal(dict)
+
+    def __init__(self, database: Database, usernames: list[str], requests_per_minute: int, api_url: str):
+        super().__init__()
+        self.database = database
+        self.usernames = list(dict.fromkeys(usernames))
+        self.requests_per_minute = max(1, min(24, requests_per_minute))
+        self.api_url = api_url
+        self._stop_requested = False
+
+    def stop(self):
+        self._stop_requested = True
+
+    def run(self):
+        checker = PublicUsernameChecker(self.api_url)
+        checked = available = 0
+        last_request = 0.0
+        for start in range(0, len(self.usernames), 15):
+            if self._stop_requested:
+                break
+            batch = self.usernames[start:start + 15]
+            wait = max(0.0, 60.0 / self.requests_per_minute - (time.monotonic() - last_request))
+            until = time.monotonic() + wait
+            while not self._stop_requested and time.monotonic() < until:
+                time.sleep(min(0.2, max(0.0, until - time.monotonic())))
+            if self._stop_requested:
+                break
+            try:
+                results = checker.check_many(batch)
+                last_request = time.monotonic()
+                for result in results:
+                    self.database.record_check(
+                        result.username, result.status, fragment_status=result.fragment_status,
+                        fragment_url=result.fragment_url, fragment_price_ton=result.fragment_price_ton,
+                        detail=result.detail,
+                    )
+                    checked += 1
+                    available += int(result.status == "available")
+                    self.candidate_checked.emit(result.username, result.status, {"username": result.username})
+                self.message.emit(f"Rechecked {checked}/{len(self.usernames)} · free {available}")
+            except Exception as exc:
+                last_request = time.monotonic()
+                for name in batch:
+                    self.database.record_check(name, "check_error", detail=str(exc))
+                    checked += 1
+                self.message.emit(f"Recheck error: {exc}")
+        self.finished_summary.emit({"checked": checked, "available": available, "generated": 0, "stopped": self._stop_requested})
+
+
+class RatesWorker(QThread):
+    updated = Signal(object, object)
+
+    def run(self):
+        ton_usd, usd_rub = CurrencyRates().refresh()
+        self.updated.emit(ton_usd, usd_rub)
