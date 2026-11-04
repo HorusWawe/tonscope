@@ -4,46 +4,38 @@ Desktop username research tool built with Python and PySide6.
 
 ## Version 0.2
 
-- Generates 5, 6 and 7 character lowercase Latin usernames.
-- Readable, word-like, brandable and random generation modes.
-- Mixed-length scanning and minimum quality score.
+- Generates lowercase Latin usernames of 5, 6 and 7 letters.
+- Readable, word-like, brandable and random modes, including mixed 5-7 scanning.
 - Live public Telegram presence and Fragment collectible checks through a bulk resolver.
-- Up to 15 names per API request; configurable request pacing.
+- Up to 15 usernames per request, configurable request pacing.
 - Separate AVAILABLE, OCCUPIED, FRAGMENT AUCTION, FRAGMENT COLLECTIBLE and CHECK ERROR states.
-- Automatic SQLite persistence, profile data outside the repository, resumable interrupted candidates.
-- STOP, recheck saved/selected usernames, new/saved/checked views.
-- CSV, JSON and TXT export.
-- Fragment's observed TON ask, TON/USD and USD/RUB conversion.
-- Comparable range from at least three observed active Fragment asks of the same username length. This is a current-ask reference range, not a guaranteed resale value.
+- SQLite persistence, interrupted-candidate recovery, STOP, and rechecking saved/selected usernames.
+- New, Saved and Checked views; CSV, JSON and TXT export.
+- Fragment's observed TON ask and cached TON/USD + USD/RUB conversion.
+- Comparable range appears only after at least three observed active Fragment asks of the same username length. This is a current-ask reference range, not a guaranteed resale value.
 
 ## Install
 
-\`\`\`powershell
+```powershell
 py -3.12 -m venv .venv
 .venv\\Scripts\\activate
 pip install -r requirements.txt
 python main.py
-\`\`\`
+```
 
 ## User data
 
-Settings and profiles are stored outside Git:
-- Windows: %APPDATA%/TONSCOPE/
-- Linux: ~/.config/TONSCOPE/ or $XDG_CONFIG_HOME/TONSCOPE/
-
-The default database is profiles/default/tonscope.db.
+Settings and profiles are stored outside Git: `%APPDATA%/TONSCOPE/` on Windows and `~/.config/TONSCOPE/` on Linux (or `$XDG_CONFIG_HOME/TONSCOPE/`). The default database is `profiles/default/tonscope.db`.
 
 ## Public checker
 
-Default endpoint: https://tg-username-api.vercel.app/api/v1
+Default endpoint: `https://tg-username-api.vercel.app/api/v1`. It checks public Telegram pages and Fragment listing pages and requires no Telegram login. Its documentation states a maximum of 25 API requests/minute and up to 15 usernames per bulk request. TONSCOPE defaults to 20 bulk requests/minute.
 
-The resolver checks public Telegram pages and Fragment listing pages. It requires no Telegram login. Its documentation states a maximum of 25 API requests per minute and up to 15 usernames per bulk request. TONSCOPE defaults to 20 bulk requests per minute.
-
-This is a third-party public-data resolver, not an official Telegram or Fragment API. Ambiguous and failed checks are stored as CHECK ERROR, never as AVAILABLE. Fragment prices are only displayed when the resolver returns an observed public price; TONSCOPE does not invent a price for an unlisted username.
+This is a third-party public-data resolver, not an official Telegram or Fragment API. Ambiguous and failed checks are stored as CHECK ERROR, never AVAILABLE. Fragment prices are only displayed when the resolver returns an observed public price; no price is fabricated for an unlisted username.
 
 ## Tests
 
-\`\`\`powershell
+```powershell
 python -m compileall -q main.py tonscope tests
 python -m unittest discover -s tests -v
-\`\`\`
+```
