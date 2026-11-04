@@ -185,7 +185,6 @@ class RecheckWorker(QThread):
             except Exception as exc:
                 last_request = time.monotonic()
                 for name in batch:
-                    self.database.record_check(name, "check_error", detail=str(exc))
                     checked += 1
                 self.message.emit(f"Recheck error: {exc}")
         self.finished_summary.emit({"checked": checked, "available": available, "generated": 0, "stopped": self._stop_requested})
