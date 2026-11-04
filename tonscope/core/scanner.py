@@ -134,7 +134,7 @@ class RecheckWorker(QThread):
         self._stop_requested = True
 
     def run(self):
-        checker = PublicUsernameChecker(self.api_url)
+        checker = PublicUsernameChecker(self.api_url, timeout=12)
         checked = available = 0
         last_request = 0.0
         for start in range(0, len(self.usernames), 15):
