@@ -140,14 +140,16 @@ class Database:
             ).fetchall()
         return [dict(row) for row in rows]
 
-    def comparable_prices(self, length: int) -> list[float]:
+    def comparable_prices(self, length: int, score: int | None = None) -> list[float]:
+        score_clause = " AND overall BETWEEN ? AND ?" if score is not None else ""
+        params = (length, score - 2, score + 2) if score is not None else (length,)
         with self.connect() as db:
-            rows = db.execute("""
+            rows = db.execute(f"""
                 SELECT fragment_price_ton FROM usernames
                 WHERE length(username)=? AND fragment_status IN ('on_auction','for_sale')
-                  AND fragment_price_ton > 0
+                  AND fragment_price_ton > 0{score_clause}
                 ORDER BY updated_at DESC LIMIT 200
-            """, (length,)).fetchall()
+            """, params).fetchall()
         return [float(row[0]) for row in rows if row[0] is not None]
 
     def stats(self) -> dict[str, int]:
