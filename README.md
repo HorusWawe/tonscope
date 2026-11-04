@@ -6,10 +6,11 @@ Desktop username research tool built with Python and PySide6.
 
 - Generates lowercase Latin usernames of 5, 6 and 7 letters.
 - Readable, word-like, brandable and random modes, including mixed 5-7 scanning.
+- 1-10 readability, pronounceability, uniqueness, brandability and liquidity heuristics.
 - Live public Telegram presence and Fragment collectible checks through a bulk resolver.
 - Up to 15 usernames per request, configurable request pacing.
 - Separate AVAILABLE, OCCUPIED, FRAGMENT AUCTION, FRAGMENT COLLECTIBLE and CHECK ERROR states.
-- SQLite persistence, interrupted-candidate recovery, STOP, and rechecking saved/selected usernames.
+- SQLite persistence, interrupted-candidate recovery, STOP, rechecking saved/selected usernames, and multiple local profiles.
 - New, Saved and Checked views; CSV, JSON and TXT export.
 - Fragment's observed TON ask and cached TON/USD + USD/RUB conversion.
 - Comparable range appears only after at least three observed active Fragment asks of the same username length. This is a current-ask reference range, not a guaranteed resale value.
