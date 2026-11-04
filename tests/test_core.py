@@ -60,10 +60,13 @@ class DatabaseTests(unittest.TestCase):
                         updated_at TEXT NOT NULL
                     )
                 """)
+                connection.execute("INSERT INTO usernames(username, created_at, updated_at) VALUES(?, ?, ?)", ("suaqa", "2026-01-01T00:00:00+00:00", "2026-01-01T00:00:00+00:00"))
             db = Database(path)
             with db.connect() as connection:
                 columns = {row["name"] for row in connection.execute("PRAGMA table_info(usernames)")}
+                migrated = connection.execute("SELECT liquidity FROM usernames WHERE username=?", ("suaqa",)).fetchone()
             self.assertIn("liquidity", columns)
+            self.assertGreater(migrated["liquidity"], 0)
             self.assertIn("fragment_status", columns)
             self.assertIn("fragment_price_ton", columns)
 
