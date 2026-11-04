@@ -108,7 +108,7 @@ class MainWindow(QMainWindow):
 
         self.pages = QStackedWidget()
         self.nav = []
-        for label, index in (("Overview", 0), ("New available", 1), ("Saved", 2), ("Checked", 3), ("Settings", 4)):
+        for label, index in (("Overview", 0), ("New available", 1), ("Saved", 2), ("All available", 3), ("Settings", 4)):
             button = QPushButton(label)
             button.setCheckable(True)
             button.clicked.connect(lambda checked=False, i=index: self.pages.setCurrentIndex(i))
@@ -161,8 +161,8 @@ class MainWindow(QMainWindow):
         self.metric_available = MetricCard("CONFIRMED AVAILABLE")
         self.metric_saved = MetricCard("SAVED")
         self.metric_candidates = MetricCard("WAITING TO CHECK")
-        self.metric_occupied = MetricCard("OCCUPIED")
-        self.metric_fragment = MetricCard("FRAGMENT COLLECTIBLES")
+        self.metric_occupied = MetricCard("NOT AVAILABLE (NOT SAVED)")
+        self.metric_fragment = MetricCard("PAID / COLLECTIBLE (NOT SAVED)")
         for card in (self.metric_total, self.metric_available, self.metric_saved, self.metric_candidates, self.metric_occupied, self.metric_fragment):
             metrics.addWidget(card)
         layout.addLayout(metrics)
@@ -226,7 +226,7 @@ class MainWindow(QMainWindow):
     def _list_page(self, view):
         page = QWidget()
         layout = QVBoxLayout(page)
-        title = {"new":"New available usernames","saved":"Saved usernames","checked":"All checked usernames"}[view]
+        title = {"new":"New available usernames","saved":"Saved usernames","checked":"All confirmed available usernames"}[view]
         heading = QLabel(title)
         heading.setStyleSheet("font-size:22pt;font-weight:700")
         layout.addWidget(heading)
@@ -432,9 +432,9 @@ class MainWindow(QMainWindow):
         self.metric_total.set_value(stats["total"])
         self.metric_available.set_value(stats["available"])
         self.metric_saved.set_value(stats["saved"])
-        self.metric_candidates.set_value(stats["candidates"])
-        self.metric_occupied.set_value(stats["occupied"])
-        self.metric_fragment.set_value(stats["fragment"])
+        self.metric_candidates.set_value(0)
+        self.metric_occupied.set_value(0)
+        self.metric_fragment.set_value(0)
 
     def refresh_table(self, index, query=""):
         view = {1:"new", 2:"saved", 3:"checked"}[index]
