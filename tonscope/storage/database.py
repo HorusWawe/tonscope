@@ -84,8 +84,12 @@ class Database:
             return cursor.rowcount > 0
 
     def exists(self, username: str) -> bool:
+        return self.get_username(username) is not None
+
+    def get_username(self, username: str) -> dict | None:
         with self.connect() as db:
-            return db.execute("SELECT 1 FROM usernames WHERE username=?", (username,)).fetchone() is not None
+            row = db.execute("SELECT * FROM usernames WHERE username=?", (username,)).fetchone()
+        return dict(row) if row else None
 
     def record_check(self, username: str, status: str, *, fragment_status: str | None = None,
                      fragment_url: str | None = None, fragment_price_ton: float | None = None,
