@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+import shutil
 import sys
 from pathlib import Path
 
@@ -18,7 +20,19 @@ from tonscope.core.scanner import ScanWorker, RecheckWorker, RatesWorker
 from tonscope.core.valuation import comparable_range
 from tonscope.storage.database import Database
 
-DB_PATH = data_dir() / "profiles" / "default" / "tonscope.db"
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+
+
+def profile_database_path(profile: str) -> Path:
+    if not re.fullmatch(r"[a-z0-9_-]{1,32}", profile):
+        profile = "default"
+    target = data_dir() / "profiles" / profile / "tonscope.db"
+    if profile == "default" and not target.exists():
+        legacy = PROJECT_ROOT / "user_data" / "profiles" / "default" / "tonscope.db"
+        if legacy.exists():
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(legacy, target)
+    return target
 
 STYLE = """
 QWidget { background:#111216; color:#e8e9ef; font-family:'Segoe UI'; font-size:10pt; }
@@ -60,8 +74,9 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.config = AppConfig()
-        self.profile_name = self.config.values.get("profile", "default")
-        self.db = Database(data_dir() / "profiles" / self.profile_name / "tonscope.db")
+        configured_profile = str(self.config.values.get("profile", "default"))
+        self.profile_name = configured_profile if re.fullmatch(r"[a-z0-9_-]{1,32}", configured_profile) else "default"
+        self.db = Database(profile_database_path(self.profile_name))
         self.worker = None
         self.rates_worker = None
         self.ton_usd = None
@@ -309,8 +324,11 @@ class MainWindow(QMainWindow):
         if not re.fullmatch(r"[a-z0-9_-]{1,32}", name):
             QMessageBox.warning(self, "Invalid profile", "Invalid profile name.")
             return
+        if self.worker and self.worker.isRunning():
+            self.status.setText("Stop the active scan before switching profiles.")
+            return
         self.profile_name = name
-        self.db = Database(data_dir() / "profiles" / name / "tonscope.db")
+        self.db = Database(profile_database_path(name))
         self.config.values["profile"] = name
         self.config.save()
         self.profile_label.setText(f"PROFILE\n{name}")
