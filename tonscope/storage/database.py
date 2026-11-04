@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import csv
+import json
 import sqlite3
 from pathlib import Path
 from datetime import datetime, timezone
@@ -12,7 +14,7 @@ class Database:
         self._initialize()
 
     def connect(self) -> sqlite3.Connection:
-        db = sqlite3.connect(self.path, timeout=15)
+        db = sqlite3.connect(self.path, timeout=20)
         db.row_factory = sqlite3.Row
         db.execute("PRAGMA journal_mode=WAL")
         db.execute("PRAGMA foreign_keys=ON")
@@ -32,19 +34,36 @@ class Database:
                     overall INTEGER NOT NULL DEFAULT 0,
                     telegram_checked_at TEXT,
                     fragment_checked_at TEXT,
-                    estimated_ton REAL,
+                    fragment_status TEXT,
+                    fragment_url TEXT,
+                    fragment_price_ton REAL,
+                    estimated_low_ton REAL,
+                    estimated_high_ton REAL,
                     estimated_usd REAL,
                     estimated_rub REAL,
+                    check_detail TEXT,
                     is_saved INTEGER NOT NULL DEFAULT 0,
                     is_seen INTEGER NOT NULL DEFAULT 0,
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL
                 );
-
                 CREATE INDEX IF NOT EXISTS idx_usernames_status ON usernames(status);
                 CREATE INDEX IF NOT EXISTS idx_usernames_saved ON usernames(is_saved);
                 CREATE INDEX IF NOT EXISTS idx_usernames_score ON usernames(overall);
             """)
+            # Lightweight migration for databases created by v0.1.
+            existing = {row["name"] for row in db.execute("PRAGMA table_info(usernames)")}
+            additions = {
+                "fragment_status": "TEXT",
+                "fragment_url": "TEXT",
+                "fragment_price_ton": "REAL",
+                "estimated_low_ton": "REAL",
+                "estimated_high_ton": "REAL",
+                "check_detail": "TEXT",
+            }
+            for name, sql_type in additions.items():
+                if name not in existing:
+                    db.execute(f"ALTER TABLE usernames ADD COLUMN {name} {sql_type}")
 
     @staticmethod
     def now() -> str:
@@ -60,14 +79,24 @@ class Database:
                 ) VALUES (?, 'candidate', ?, ?, ?, ?, ?, ?, ?)
             """, (
                 username, scores["readability"], scores["pronounceability"],
-                scores["uniqueness"], scores["brandability"], scores["overall"],
-                now, now,
+                scores["uniqueness"], scores["brandability"], scores["overall"], now, now,
             ))
             return cursor.rowcount > 0
 
     def exists(self, username: str) -> bool:
         with self.connect() as db:
-            return db.execute("SELECT 1 FROM usernames WHERE username = ?", (username,)).fetchone() is not None
+            return db.execute("SELECT 1 FROM usernames WHERE username=?", (username,)).fetchone() is not None
+
+    def record_check(self, username: str, status: str, *, fragment_status: str | None = None,
+                     fragment_url: str | None = None, fragment_price_ton: float | None = None,
+                     detail: str | None = None) -> None:
+        now = self.now()
+        with self.connect() as db:
+            db.execute("""
+                UPDATE usernames SET status=?, telegram_checked_at=?, fragment_checked_at=?,
+                    fragment_status=?, fragment_url=?, fragment_price_ton=?, check_detail=?,
+                    updated_at=? WHERE username=?
+            """, (status, now, now, fragment_status, fragment_url, fragment_price_ton, detail, now, username))
 
     def set_status(self, username: str, status: str) -> None:
         with self.connect() as db:
@@ -81,29 +110,70 @@ class Database:
         with self.connect() as db:
             db.execute("UPDATE usernames SET is_saved=?, updated_at=? WHERE username=?", (int(saved), self.now(), username))
 
-    def list_usernames(self, view: str = "all", limit: int = 500) -> list[dict]:
-        clauses = []
+    def list_usernames(self, view: str = "all", limit: int = 500, min_score: int = 0) -> list[dict]:
+        clauses = ["overall >= ?"]
+        params: list[object] = [min_score]
         if view == "new":
-            clauses.append("is_seen = 0 AND status = 'available'")
+            clauses.append("status='available' AND is_seen=0")
         elif view == "saved":
-            clauses.append("is_saved = 1")
+            clauses.append("is_saved=1")
         elif view == "checked":
-            clauses.append("status IN ('available','occupied','auction','check_error')")
-        where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
+            clauses.append("status IN ('available','occupied','auction','fragment_collectible','check_error')")
+        where = " WHERE " + " AND ".join(clauses)
         with self.connect() as db:
             rows = db.execute(
-                "SELECT * FROM usernames" + where + " ORDER BY created_at DESC LIMIT ?",
-                (limit,),
+                "SELECT * FROM usernames" + where + " ORDER BY overall DESC, created_at DESC LIMIT ?",
+                (*params, limit),
             ).fetchall()
         return [dict(row) for row in rows]
+
+    def get_candidate_batch(self, limit: int = 1000) -> list[dict]:
+        with self.connect() as db:
+            rows = db.execute(
+                "SELECT * FROM usernames WHERE status='candidate' ORDER BY created_at LIMIT ?", (limit,)
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def comparable_prices(self, length: int) -> list[float]:
+        with self.connect() as db:
+            rows = db.execute("""
+                SELECT fragment_price_ton FROM usernames
+                WHERE length(username)=? AND fragment_status IN ('on_auction','for_sale')
+                  AND fragment_price_ton > 0
+                ORDER BY updated_at DESC LIMIT 200
+            """, (length,)).fetchall()
+        return [float(row[0]) for row in rows if row[0] is not None]
 
     def stats(self) -> dict[str, int]:
         with self.connect() as db:
             row = db.execute("""
-                SELECT COUNT(*) AS total,
-                    SUM(CASE WHEN status='available' THEN 1 ELSE 0 END) AS available,
-                    SUM(CASE WHEN is_saved=1 THEN 1 ELSE 0 END) AS saved,
-                    SUM(CASE WHEN status='candidate' THEN 1 ELSE 0 END) AS candidates
+                SELECT COUNT(*) total,
+                    SUM(CASE WHEN status='available' THEN 1 ELSE 0 END) available,
+                    SUM(CASE WHEN is_saved=1 THEN 1 ELSE 0 END) saved,
+                    SUM(CASE WHEN status='candidate' THEN 1 ELSE 0 END) candidates,
+                    SUM(CASE WHEN status='occupied' THEN 1 ELSE 0 END) occupied,
+                    SUM(CASE WHEN status IN ('auction','fragment_collectible') THEN 1 ELSE 0 END) fragment
                 FROM usernames
             """).fetchone()
-        return {key: int(row[key] or 0) for key in ("total", "available", "saved", "candidates")}
+        return {key: int(row[key] or 0) for key in ("total", "available", "saved", "candidates", "occupied", "fragment")}
+
+    def export_rows(self, view: str = "all") -> list[dict]:
+        return self.list_usernames(view, limit=1_000_000)
+
+    def export(self, path: str | Path, fmt: str, view: str = "all") -> int:
+        rows = self.export_rows(view)
+        target = Path(path)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if fmt == "json":
+            target.write_text(json.dumps(rows, ensure_ascii=False, indent=2), encoding="utf-8")
+        elif fmt == "txt":
+            target.write_text("\n".join("@" + row["username"] for row in rows), encoding="utf-8")
+        else:
+            if rows:
+                with target.open("w", newline="", encoding="utf-8-sig") as stream:
+                    writer = csv.DictWriter(stream, fieldnames=list(rows[0].keys()))
+                    writer.writeheader()
+                    writer.writerows(rows)
+            else:
+                target.write_text("", encoding="utf-8-sig")
+        return len(rows)
