@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+import sqlite3
 from pathlib import Path
 
 from tonscope.core.evaluator import evaluate_username
@@ -33,6 +34,39 @@ class EvaluatorTests(unittest.TestCase):
 
 
 class DatabaseTests(unittest.TestCase):
+
+    def test_v01_database_is_migrated(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "legacy.db"
+            with sqlite3.connect(path) as connection:
+                connection.execute("""
+                    CREATE TABLE usernames (
+                        username TEXT PRIMARY KEY COLLATE NOCASE,
+                        status TEXT NOT NULL DEFAULT 'candidate',
+                        source TEXT NOT NULL DEFAULT 'generated',
+                        readability INTEGER NOT NULL DEFAULT 0,
+                        pronounceability INTEGER NOT NULL DEFAULT 0,
+                        uniqueness INTEGER NOT NULL DEFAULT 0,
+                        brandability INTEGER NOT NULL DEFAULT 0,
+                        overall INTEGER NOT NULL DEFAULT 0,
+                        telegram_checked_at TEXT,
+                        fragment_checked_at TEXT,
+                        estimated_ton REAL,
+                        estimated_usd REAL,
+                        estimated_rub REAL,
+                        is_saved INTEGER NOT NULL DEFAULT 0,
+                        is_seen INTEGER NOT NULL DEFAULT 0,
+                        created_at TEXT NOT NULL,
+                        updated_at TEXT NOT NULL
+                    )
+                """)
+            db = Database(path)
+            with db.connect() as connection:
+                columns = {row["name"] for row in connection.execute("PRAGMA table_info(usernames)")}
+            self.assertIn("liquidity", columns)
+            self.assertIn("fragment_status", columns)
+            self.assertIn("fragment_price_ton", columns)
+
     def test_candidate_persists_and_is_not_duplicated(self):
         with tempfile.TemporaryDirectory() as temp:
             db = Database(Path(temp) / "profile.db")
