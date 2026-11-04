@@ -524,7 +524,7 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event):
         if self.worker and self.worker.isRunning():
             self.worker.stop()
-            self.worker.wait(5000)
+            self.worker.wait(15000)
         event.accept()
 
 
