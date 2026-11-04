@@ -378,7 +378,7 @@ class MainWindow(QMainWindow):
         return " · ".join(parts)
 
     def _range_text(self, item):
-        estimate = comparable_range(self.db.comparable_prices(len(item["username"])))
+        estimate = comparable_range(self.db.comparable_prices(len(item["username"]), item.get("overall", 0)))
         if estimate is None:
             return "Not enough comps"
         low, high = estimate
